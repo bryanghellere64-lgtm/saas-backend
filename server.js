@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import pkg from "pg";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
 const { Pool } = pkg;
@@ -14,6 +14,7 @@ app.use(express.json());
 
 const SECRET = "segredo";
 
+// ⚠️ Em produção (Render), isso deve ser variável de ambiente depois
 const pool = new Pool({
   user: "postgres",
   host: "localhost",
@@ -22,11 +23,13 @@ const pool = new Pool({
   port: 5432
 });
 
+// ✅ PORT CORRIGIDO (OBRIGATÓRIO PARA DEPLOY)
+const PORT = process.env.PORT || 3000;
+
 // TESTE
 app.get("/", (req, res) => {
   res.send("SaaS rodando 🚀");
 });
-
 
 // REGISTER
 app.post("/register", async (req, res) => {
@@ -56,7 +59,6 @@ app.post("/register", async (req, res) => {
     res.status(500).json({ error: "Erro interno" });
   }
 });
-
 
 // LOGIN
 app.post("/login", async (req, res) => {
@@ -94,7 +96,6 @@ app.post("/login", async (req, res) => {
   }
 });
 
-
 // Middleware auth
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -114,8 +115,7 @@ function authMiddleware(req, res, next) {
   }
 }
 
-
-// CRIAR APPOINTMENT (com token)
+// CRIAR APPOINTMENT
 app.post("/appointments", authMiddleware, async (req, res) => {
   const { nome, telefone, data } = req.body;
   const user_id = req.user.id;
@@ -136,7 +136,6 @@ app.post("/appointments", authMiddleware, async (req, res) => {
   }
 });
 
-
 // LISTAR APPOINTMENTS
 app.get("/appointments", authMiddleware, async (req, res) => {
   const user_id = req.user.id;
@@ -155,10 +154,7 @@ app.get("/appointments", authMiddleware, async (req, res) => {
   }
 });
 
-
-// ================================
-// ✅ CONFIRMAÇÃO COM TOKEN
-// ================================
+// CONFIRMAÇÃO COM TOKEN
 app.get("/confirm/:id", async (req, res) => {
   const { id } = req.params;
   const { token } = req.query;
@@ -194,10 +190,7 @@ app.get("/confirm/:id", async (req, res) => {
   }
 });
 
-
-// ================================
-// 📊 DASHBOARD STATS
-// ================================
+// DASHBOARD STATS
 app.get("/stats", authMiddleware, async (req, res) => {
   const user_id = req.user.id;
 
@@ -229,10 +222,7 @@ app.get("/stats", authMiddleware, async (req, res) => {
   }
 });
 
-
-// ================================
-// 🔔 SCHEDULER AUTOMÁTICO
-// ================================
+// SCHEDULER
 async function sendWhatsApp(telefone, mensagem) {
   console.log(`📲 Enviando para ${telefone}: ${mensagem}`);
 }
@@ -270,8 +260,7 @@ async function processAppointments() {
 
 setInterval(processAppointments, 60000);
 
-
 // START SERVER
-app.listen(3000, "0.0.0.0", () => {
-  console.log("Servidor rodando em http://localhost:3000");
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
