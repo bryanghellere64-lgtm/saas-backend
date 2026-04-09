@@ -167,15 +167,12 @@ app.put("/appointments/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// EXCLUIR (CORRIGIDO)
+// EXCLUIR
 app.delete("/appointments/:id", authMiddleware, async (req, res) => {
   const { id } = req.params;
   const user_id = req.user.id;
 
   try {
-    console.log("DELETE ID:", id);
-    console.log("USER:", user_id);
-
     const result = await pool.query(
       "DELETE FROM appointments WHERE id=$1 AND user_id=$2 RETURNING *",
       [id, user_id]
@@ -188,7 +185,7 @@ app.delete("/appointments/:id", authMiddleware, async (req, res) => {
     res.json({ message: "Agendamento excluído com sucesso" });
 
   } catch (err) {
-    console.error("ERRO DELETE:", err);
+    console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
@@ -219,6 +216,35 @@ app.get("/confirm/:id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send("Erro ao confirmar");
+  }
+});
+
+// CANCELAR
+app.get("/cancel/:id", async (req, res) => {
+  const { id } = req.params;
+  const { token } = req.query;
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM appointments WHERE id = $1",
+      [id]
+    );
+
+    const appt = result.rows[0];
+
+    if (!appt) return res.status(404).send("Agendamento não encontrado");
+    if (appt.confirm_token !== token)
+      return res.status(401).send("Token inválido");
+
+    await pool.query(
+      "UPDATE appointments SET status='cancelled' WHERE id=$1",
+      [id]
+    );
+
+    res.send("Agendamento cancelado ❌");
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Erro ao cancelar");
   }
 });
 
@@ -272,7 +298,15 @@ async function processAppointments() {
       if (apptDate <= now) {
         await sendWhatsApp(
           appt.telefone,
-          `Confirme: https://saas-backend-1i9q.onrender.com/confirm/${appt.id}?token=${appt.confirm_token}`
+`Olá ${appt.nome} 👋
+
+Você confirma seu agendamento?
+
+✅ Confirmar:
+https://saas-backend-1i9q.onrender.com/confirm/${appt.id}?token=${appt.confirm_token}
+
+❌ Cancelar:
+https://saas-backend-1i9q.onrender.com/cancel/${appt.id}?token=${appt.confirm_token}`
         );
 
         await pool.query(
