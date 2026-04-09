@@ -4,6 +4,7 @@ import pkg from "pg";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import "dotenv/config";
 
 const { Pool } = pkg;
 const app = express();
@@ -11,23 +12,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Secret JWT (usar variável de ambiente)
-const SECRET = process.env.JWT_SECRET || "segredo_super_seguro";
-
-// ✅ Conexão PostgreSQL usando variáveis de ambiente do Render
-const pool = new Pool({
-  user: process.env.DB_USER,       // ex: saas_mdas_user
-  host: process.env.DB_HOST,       // ex: dpg-d7bondmuk2gs738vmkrg-a.oregon-postgres.render.com
-  database: process.env.DB_NAME,   // ex: saas_mdas
-  password: process.env.DB_PASSWORD, // ex: BnZSAbkx2z3spLvwvXFngqpDCFSL0Pxz
-  port: Number(process.env.DB_PORT) || 5432,
-  ssl: { rejectUnauthorized: false }
-});
-
-// ✅ Porta para Render
 const PORT = process.env.PORT || 3000;
 
-// TESTE
+const pool = new Pool({
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: Number(process.env.DB_PORT),
+  ssl: process.env.DB_HOST?.includes("render.com")
+    ? { rejectUnauthorized: false }
+    : false
+});
+
 app.get("/", (req, res) => {
   res.send("SaaS rodando 🚀");
 });
@@ -35,16 +32,14 @@ app.get("/", (req, res) => {
 // REGISTER
 app.post("/register", async (req, res) => {
   const { nome, email, senha } = req.body;
-
   try {
     const exists = await pool.query(
       "SELECT * FROM users WHERE email = $1",
       [email]
     );
 
-    if (exists.rows.length > 0) {
+    if (exists.rows.length > 0)
       return res.status(400).json({ error: "Email já cadastrado" });
-    }
 
     const hashedPassword = await bcrypt.hash(senha, 10);
 
@@ -54,7 +49,6 @@ app.post("/register", async (req, res) => {
     );
 
     res.json(result.rows[0]);
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro interno" });
@@ -64,7 +58,6 @@ app.post("/register", async (req, res) => {
 // LOGIN
 app.post("/login", async (req, res) => {
   const { email, senha } = req.body;
-
   try {
     const result = await pool.query(
       "SELECT * FROM users WHERE email = $1",
@@ -73,41 +66,46 @@ app.post("/login", async (req, res) => {
 
     const user = result.rows[0];
 
-    if (!user) return res.status(400).json({ error: "Usuário não encontrado" });
+    if (!user)
+      return res.status(400).json({ error: "Usuário não encontrado" });
 
     const passwordMatch = await bcrypt.compare(senha, user.senha);
 
-    if (!passwordMatch) return res.status(400).json({ error: "Senha inválida" });
+    if (!passwordMatch)
+      return res.status(400).json({ error: "Senha inválida" });
 
     const token = jwt.sign(
       { id: user.id, email: user.email },
-      SECRET,
+      process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
     res.json({ token });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-// Middleware de autenticação
+// AUTH
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "Token não enviado" });
+
+  if (!authHeader)
+    return res.status(401).json({ error: "Token não enviado" });
 
   const token = authHeader.split(" ")[1];
+
   try {
-    req.user = jwt.verify(token, SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
     next();
   } catch {
     return res.status(401).json({ error: "Token inválido" });
   }
 }
 
-// CRIAR APPOINTMENT
+// CRIAR
 app.post("/appointments", authMiddleware, async (req, res) => {
   const { nome, telefone, data } = req.body;
   const user_id = req.user.id;
@@ -116,36 +114,86 @@ app.post("/appointments", authMiddleware, async (req, res) => {
     const confirm_token = crypto.randomBytes(16).toString("hex");
 
     const result = await pool.query(
-      "INSERT INTO appointments (user_id, nome, telefone, data, sent, status, confirm_token) VALUES ($1, $2, $3, $4, false, 'pending', $5) RETURNING *",
+      `INSERT INTO appointments 
+      (user_id, nome, telefone, data, sent, status, confirm_token) 
+      VALUES ($1,$2,$3,$4,false,'pending',$5) 
+      RETURNING *`,
       [user_id, nome, telefone, data, confirm_token]
     );
 
     res.json(result.rows[0]);
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-// LISTAR APPOINTMENTS
+// LISTAR
 app.get("/appointments", authMiddleware, async (req, res) => {
   const user_id = req.user.id;
 
   try {
     const result = await pool.query(
-      "SELECT * FROM appointments WHERE user_id = $1",
+      "SELECT * FROM appointments WHERE user_id = $1 ORDER BY data DESC",
       [user_id]
     );
-    res.json(result.rows);
 
+    res.json(result.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-// CONFIRMAR APPOINTMENT
+// EDITAR
+app.put("/appointments/:id", authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { nome, telefone, data } = req.body;
+  const user_id = req.user.id;
+
+  try {
+    const result = await pool.query(
+      `UPDATE appointments 
+       SET nome=$1, telefone=$2, data=$3 
+       WHERE id=$4 AND user_id=$5 
+       RETURNING *`,
+      [nome, telefone, data, id, user_id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro interno" });
+  }
+});
+
+// EXCLUIR (CORRIGIDO)
+app.delete("/appointments/:id", authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const user_id = req.user.id;
+
+  try {
+    console.log("DELETE ID:", id);
+    console.log("USER:", user_id);
+
+    const result = await pool.query(
+      "DELETE FROM appointments WHERE id=$1 AND user_id=$2 RETURNING *",
+      [id, user_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Agendamento não encontrado" });
+    }
+
+    res.json({ message: "Agendamento excluído com sucesso" });
+
+  } catch (err) {
+    console.error("ERRO DELETE:", err);
+    res.status(500).json({ error: "Erro interno" });
+  }
+});
+
+// CONFIRMAR
 app.get("/confirm/:id", async (req, res) => {
   const { id } = req.params;
   const { token } = req.query;
@@ -155,41 +203,42 @@ app.get("/confirm/:id", async (req, res) => {
       "SELECT * FROM appointments WHERE id = $1",
       [id]
     );
+
     const appt = result.rows[0];
 
     if (!appt) return res.status(404).send("Agendamento não encontrado");
-    if (appt.confirm_token !== token) return res.status(401).send("Token inválido");
+    if (appt.confirm_token !== token)
+      return res.status(401).send("Token inválido");
 
     await pool.query(
-      "UPDATE appointments SET status = 'confirmed' WHERE id = $1",
+      "UPDATE appointments SET status='confirmed' WHERE id=$1",
       [id]
     );
 
     res.send("Presença confirmada ✅");
-
   } catch (err) {
     console.error(err);
     res.status(500).send("Erro ao confirmar");
   }
 });
 
-// DASHBOARD STATS
+// STATS
 app.get("/stats", authMiddleware, async (req, res) => {
   const user_id = req.user.id;
 
   try {
     const total = await pool.query(
-      "SELECT COUNT(*) FROM appointments WHERE user_id = $1",
+      "SELECT COUNT(*) FROM appointments WHERE user_id=$1",
       [user_id]
     );
 
     const confirmed = await pool.query(
-      "SELECT COUNT(*) FROM appointments WHERE user_id = $1 AND status = 'confirmed'",
+      "SELECT COUNT(*) FROM appointments WHERE user_id=$1 AND status='confirmed'",
       [user_id]
     );
 
     const pending = await pool.query(
-      "SELECT COUNT(*) FROM appointments WHERE user_id = $1 AND status = 'pending'",
+      "SELECT COUNT(*) FROM appointments WHERE user_id=$1 AND status='pending'",
       [user_id]
     );
 
@@ -198,14 +247,13 @@ app.get("/stats", authMiddleware, async (req, res) => {
       confirmed: confirmed.rows[0].count,
       pending: pending.rows[0].count
     });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro interno" });
   }
 });
 
-// SCHEDULER DE WHATSAPP (simulação)
+// SCHEDULER
 async function sendWhatsApp(telefone, mensagem) {
   console.log(`📲 Enviando para ${telefone}: ${mensagem}`);
 }
@@ -213,24 +261,26 @@ async function sendWhatsApp(telefone, mensagem) {
 async function processAppointments() {
   try {
     const now = new Date();
+
     const result = await pool.query(
-      "SELECT * FROM appointments WHERE sent = false"
+      "SELECT * FROM appointments WHERE sent=false"
     );
 
     for (const appt of result.rows) {
       const apptDate = new Date(appt.data);
+
       if (apptDate <= now) {
         await sendWhatsApp(
           appt.telefone,
-          `Confirme: https://saas-api-3tun.onrender.com/confirm/${appt.id}?token=${appt.confirm_token}`
+          `Confirme: https://saas-backend-1i9q.onrender.com/confirm/${appt.id}?token=${appt.confirm_token}`
         );
+
         await pool.query(
-          "UPDATE appointments SET sent = true WHERE id = $1",
+          "UPDATE appointments SET sent=true WHERE id=$1",
           [appt.id]
         );
       }
     }
-
   } catch (err) {
     console.error("Erro no scheduler:", err);
   }
@@ -238,7 +288,6 @@ async function processAppointments() {
 
 setInterval(processAppointments, 60000);
 
-// START SERVER
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
