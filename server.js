@@ -6,24 +6,25 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
 const { Pool } = pkg;
-
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-const SECRET = "segredo";
+// ✅ Secret JWT (usar variável de ambiente)
+const SECRET = process.env.JWT_SECRET || "segredo_super_seguro";
 
-// ⚠️ Em produção (Render), isso deve ser variável de ambiente depois
+// ✅ Conexão PostgreSQL usando variáveis de ambiente do Render
 const pool = new Pool({
-  user: "postgres",
-  host: "localhost",
-  database: "saas",
-  password: "Br@12062000",
-  port: 5432
+  user: process.env.DB_USER,       // ex: saas_mdas_user
+  host: process.env.DB_HOST,       // ex: dpg-d7bondmuk2gs738vmkrg-a.oregon-postgres.render.com
+  database: process.env.DB_NAME,   // ex: saas_mdas
+  password: process.env.DB_PASSWORD, // ex: BnZSAbkx2z3spLvwvXFngqpDCFSL0Pxz
+  port: Number(process.env.DB_PORT) || 5432,
+  ssl: { rejectUnauthorized: false }
 });
 
-// ✅ PORT CORRIGIDO (OBRIGATÓRIO PARA DEPLOY)
+// ✅ Porta para Render
 const PORT = process.env.PORT || 3000;
 
 // TESTE
@@ -72,15 +73,11 @@ app.post("/login", async (req, res) => {
 
     const user = result.rows[0];
 
-    if (!user) {
-      return res.status(400).json({ error: "Usuário não encontrado" });
-    }
+    if (!user) return res.status(400).json({ error: "Usuário não encontrado" });
 
     const passwordMatch = await bcrypt.compare(senha, user.senha);
 
-    if (!passwordMatch) {
-      return res.status(400).json({ error: "Senha inválida" });
-    }
+    if (!passwordMatch) return res.status(400).json({ error: "Senha inválida" });
 
     const token = jwt.sign(
       { id: user.id, email: user.email },
@@ -96,21 +93,16 @@ app.post("/login", async (req, res) => {
   }
 });
 
-// Middleware auth
+// Middleware de autenticação
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    return res.status(401).json({ error: "Token não enviado" });
-  }
+  if (!authHeader) return res.status(401).json({ error: "Token não enviado" });
 
   const token = authHeader.split(" ")[1];
-
   try {
-    const decoded = jwt.verify(token, SECRET);
-    req.user = decoded;
+    req.user = jwt.verify(token, SECRET);
     next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ error: "Token inválido" });
   }
 }
@@ -145,7 +137,6 @@ app.get("/appointments", authMiddleware, async (req, res) => {
       "SELECT * FROM appointments WHERE user_id = $1",
       [user_id]
     );
-
     res.json(result.rows);
 
   } catch (err) {
@@ -154,28 +145,20 @@ app.get("/appointments", authMiddleware, async (req, res) => {
   }
 });
 
-// CONFIRMAÇÃO COM TOKEN
+// CONFIRMAR APPOINTMENT
 app.get("/confirm/:id", async (req, res) => {
   const { id } = req.params;
   const { token } = req.query;
-
-  console.log("CONFIRM ROUTE CHAMADA ID:", id);
 
   try {
     const result = await pool.query(
       "SELECT * FROM appointments WHERE id = $1",
       [id]
     );
-
     const appt = result.rows[0];
 
-    if (!appt) {
-      return res.status(404).send("Agendamento não encontrado");
-    }
-
-    if (appt.confirm_token !== token) {
-      return res.status(401).send("Token inválido");
-    }
+    if (!appt) return res.status(404).send("Agendamento não encontrado");
+    if (appt.confirm_token !== token) return res.status(401).send("Token inválido");
 
     await pool.query(
       "UPDATE appointments SET status = 'confirmed' WHERE id = $1",
@@ -222,7 +205,7 @@ app.get("/stats", authMiddleware, async (req, res) => {
   }
 });
 
-// SCHEDULER
+// SCHEDULER DE WHATSAPP (simulação)
 async function sendWhatsApp(telefone, mensagem) {
   console.log(`📲 Enviando para ${telefone}: ${mensagem}`);
 }
@@ -230,26 +213,21 @@ async function sendWhatsApp(telefone, mensagem) {
 async function processAppointments() {
   try {
     const now = new Date();
-
     const result = await pool.query(
       "SELECT * FROM appointments WHERE sent = false"
     );
 
     for (const appt of result.rows) {
       const apptDate = new Date(appt.data);
-
       if (apptDate <= now) {
         await sendWhatsApp(
           appt.telefone,
-          `Olá ${appt.nome}, lembrete do seu atendimento! Confirme aqui: http://localhost:3000/confirm/${appt.id}?token=${appt.confirm_token}`
+          `Confirme: https://saas-api-3tun.onrender.com/confirm/${appt.id}?token=${appt.confirm_token}`
         );
-
         await pool.query(
           "UPDATE appointments SET sent = true WHERE id = $1",
           [appt.id]
         );
-
-        console.log("✅ Enviado:", appt.id);
       }
     }
 
