@@ -4,6 +4,7 @@ import pkg from "pg";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import fetch from "node-fetch";
 import "dotenv/config";
 
 const { Pool } = pkg;
@@ -145,145 +146,37 @@ app.get("/appointments", authMiddleware, async (req, res) => {
   }
 });
 
-// EDITAR
-app.put("/appointments/:id", authMiddleware, async (req, res) => {
-  const { id } = req.params;
-  const { nome, telefone, data } = req.body;
-  const user_id = req.user.id;
-
-  try {
-    const result = await pool.query(
-      `UPDATE appointments 
-       SET nome=$1, telefone=$2, data=$3 
-       WHERE id=$4 AND user_id=$5 
-       RETURNING *`,
-      [nome, telefone, data, id, user_id]
-    );
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro interno" });
-  }
-});
-
-// EXCLUIR
-app.delete("/appointments/:id", authMiddleware, async (req, res) => {
-  const { id } = req.params;
-  const user_id = req.user.id;
-
-  try {
-    const result = await pool.query(
-      "DELETE FROM appointments WHERE id=$1 AND user_id=$2 RETURNING *",
-      [id, user_id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Agendamento não encontrado" });
-    }
-
-    res.json({ message: "Agendamento excluído com sucesso" });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro interno" });
-  }
-});
-
-// CONFIRMAR
-app.get("/confirm/:id", async (req, res) => {
-  const { id } = req.params;
-  const { token } = req.query;
-
-  try {
-    const result = await pool.query(
-      "SELECT * FROM appointments WHERE id = $1",
-      [id]
-    );
-
-    const appt = result.rows[0];
-
-    if (!appt) return res.status(404).send("Agendamento não encontrado");
-    if (appt.confirm_token !== token)
-      return res.status(401).send("Token inválido");
-
-    await pool.query(
-      "UPDATE appointments SET status='confirmed' WHERE id=$1",
-      [id]
-    );
-
-    res.send("Presença confirmada ✅");
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Erro ao confirmar");
-  }
-});
-
-// CANCELAR
-app.get("/cancel/:id", async (req, res) => {
-  const { id } = req.params;
-  const { token } = req.query;
-
-  try {
-    const result = await pool.query(
-      "SELECT * FROM appointments WHERE id = $1",
-      [id]
-    );
-
-    const appt = result.rows[0];
-
-    if (!appt) return res.status(404).send("Agendamento não encontrado");
-    if (appt.confirm_token !== token)
-      return res.status(401).send("Token inválido");
-
-    await pool.query(
-      "UPDATE appointments SET status='cancelled' WHERE id=$1",
-      [id]
-    );
-
-    res.send("Agendamento cancelado ❌");
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Erro ao cancelar");
-  }
-});
-
-// STATS
-app.get("/stats", authMiddleware, async (req, res) => {
-  const user_id = req.user.id;
-
-  try {
-    const total = await pool.query(
-      "SELECT COUNT(*) FROM appointments WHERE user_id=$1",
-      [user_id]
-    );
-
-    const confirmed = await pool.query(
-      "SELECT COUNT(*) FROM appointments WHERE user_id=$1 AND status='confirmed'",
-      [user_id]
-    );
-
-    const pending = await pool.query(
-      "SELECT COUNT(*) FROM appointments WHERE user_id=$1 AND status='pending'",
-      [user_id]
-    );
-
-    res.json({
-      total: total.rows[0].count,
-      confirmed: confirmed.rows[0].count,
-      pending: pending.rows[0].count
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro interno" });
-  }
-});
-
-// SCHEDULER
+// WHATSAPP
 async function sendWhatsApp(telefone, mensagem) {
-  console.log(`📲 Enviando para ${telefone}: ${mensagem}`);
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: telefone,
+          type: "text",
+          text: {
+            body: mensagem
+          }
+        })
+      }
+    );
+
+    const data = await response.json();
+    console.log("WhatsApp enviado:", data);
+
+  } catch (err) {
+    console.error("Erro ao enviar WhatsApp:", err);
+  }
 }
 
+// SCHEDULER
 async function processAppointments() {
   try {
     const now = new Date();
