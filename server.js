@@ -279,7 +279,7 @@ app.get("/stats", authMiddleware, async (req, res) => {
   }
 });
 
-// WHATSAPP (ATUALIZADO)
+// WHATSAPP (CORRIGIDO)
 async function sendWhatsApp(telefone, mensagem) {
   try {
     const response = await fetch(
@@ -294,15 +294,20 @@ async function sendWhatsApp(telefone, mensagem) {
           messaging_product: "whatsapp",
           to: telefone,
           type: "text",
-          text: {
-            body: mensagem
-          }
+          text: { body: mensagem }
         })
       }
     );
 
-    const data = await response.json();
-    console.log("WhatsApp enviado:", data);
+    const text = await response.text();
+    console.log("Resposta WhatsApp:", text);
+
+    try {
+      const data = JSON.parse(text);
+      console.log("WhatsApp enviado:", data);
+    } catch {
+      console.log("Resposta não JSON recebida");
+    }
 
   } catch (err) {
     console.error("Erro ao enviar WhatsApp:", err);
