@@ -39,6 +39,9 @@ const pool = new Pool({
     : false
 });
 
+// Variável global simples para armazenar o token (em produção, salve no banco de dados)
+let lastGoogleAccessToken = "";
+
 // =========================
 // 🔥 FUNÇÃO GOOGLE CALENDAR
 // =========================
@@ -86,6 +89,9 @@ passport.use(new GoogleStrategy({
   },
   async (accessToken, refreshToken, profile, done) => {
     try {
+      // CAPTURA O TOKEN PARA USAR NA AGENDA
+      lastGoogleAccessToken = accessToken;
+
       const email = profile.emails[0].value;
       const nome = profile.displayName;
       
@@ -290,7 +296,14 @@ app.post("/appointments", authMiddleware, async (req, res) => {
       [user_id, nome, telefone, data, confirm_token]
     );
 
-    res.json(result.rows[0]);
+    const newAppointment = result.rows[0];
+
+    // SOLUÇÃO: DISPARA A CRIAÇÃO NA GOOGLE AGENDA
+    if (lastGoogleAccessToken) {
+      await createGoogleCalendarEvent(lastGoogleAccessToken, newAppointment);
+    }
+
+    res.json(newAppointment);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro interno" });
