@@ -34,13 +34,15 @@ app.get("/", (req, res) => {
 // 🔥 WEBHOOK WHATSAPP
 // =========================
 
-// Verificação (Meta chama isso primeiro)
+// Verificação
 app.get("/webhook", (req, res) => {
-  const VERIFY_TOKEN = "meu_token_123"; // você define no painel
+  const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "meu_token_123";
 
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
+
+  console.log("🔎 Query recebida:", req.query);
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     console.log("✅ Webhook verificado com sucesso!");
@@ -51,12 +53,49 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// Receber mensagens
-app.post("/webhook", (req, res) => {
-  console.log("📩 Mensagem recebida do WhatsApp:");
-  console.log(JSON.stringify(req.body, null, 2));
+// 🔥 RECEBER E RESPONDER MENSAGEM
+app.post("/webhook", async (req, res) => {
+  try {
+    console.log("📩 Webhook recebido:");
+    console.log(JSON.stringify(req.body, null, 2));
 
-  res.sendStatus(200);
+    const entry = req.body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+    const message = value?.messages?.[0];
+
+    if (message) {
+      const from = message.from;
+      const text = message.text?.body;
+
+      console.log("📩 Mensagem:", text);
+
+      // 🔥 RESPOSTA AUTOMÁTICA
+      await fetch(
+        `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: from,
+            type: "text",
+            text: {
+              body: `Olá! Recebi sua mensagem: "${text}"`
+            }
+          })
+        }
+      );
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("Erro no webhook:", err);
+    res.sendStatus(500);
+  }
 });
 
 
@@ -310,7 +349,7 @@ app.get("/stats", authMiddleware, async (req, res) => {
   }
 });
 
-// WHATSAPP
+// WHATSAPP (scheduler continua igual)
 async function sendWhatsApp(telefone, mensagem) {
   try {
     const response = await fetch(
