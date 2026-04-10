@@ -4,6 +4,9 @@ import pkg from "pg";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import session from "express-session"; // Adicionado para suporte a login
+import passport from "passport"; // Adicionado para suporte a login
+import { Strategy as GoogleStrategy } from "passport-google-oauth20"; // Adicionado para suporte a login
 import "dotenv/config";
 
 const { Pool } = pkg;
@@ -11,6 +14,16 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// --- CONFIGURAÇÃO DE SESSÃO E PASSPORT ---
+app.use(session({ 
+  secret: process.env.SESSION_SECRET || "nossoagendamento", 
+  resave: false, 
+  saveUninitialized: true 
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
 
 const PORT = process.env.PORT || 3000;
 
@@ -24,6 +37,60 @@ const pool = new Pool({
     ? { rejectUnauthorized: false }
     : false
 });
+
+// =========================
+// 🔥 CONFIGURAÇÃO OAUTH GOOGLE
+// =========================
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: process.env.GOOGLE_CALLBACK_URL || "https://saas-backend-1i9q.onrender.com/auth/google/callback"
+  },
+  async (accessToken, refreshToken, profile, done) => {
+    try {
+      const email = profile.emails[0].value;
+      const nome = profile.displayName;
+      
+      let user = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+      
+      if (user.rows.length === 0) {
+        user = await pool.query(
+          "INSERT INTO users (nome, email, senha) VALUES ($1, $2, $3) RETURNING *",
+          [nome, email, 'google-auth-' + crypto.randomBytes(4).toString('hex')]
+        );
+      }
+      
+      return done(null, user.rows[0]);
+    } catch (err) {
+      return done(err, null);
+    }
+  }
+));
+
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((obj, done) => done(null, obj));
+
+// =========================
+// 🔥 ROTAS DE LOGIN GOOGLE
+// =========================
+
+app.get("/auth/google", passport.authenticate("google", { 
+  scope: ["profile", "email", "https://www.googleapis.com/auth/calendar.events"] 
+}));
+
+app.get("/auth/google/callback", 
+  passport.authenticate("google", { failureRedirect: "/" }),
+  (req, res) => {
+    const token = jwt.sign(
+      { id: req.user.id, email: req.user.email }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: "1d" }
+    );
+    // Retorna o token para o usuário (em produção, redirecione para seu frontend)
+    res.json({ message: "Login via Google realizado!", token });
+  }
+);
 
 app.get("/", (req, res) => {
   res.send("SaaS rodando 🚀");
@@ -360,8 +427,8 @@ async function sendWhatsApp(telefone, appt) {
           to: telefone,
           type: "template",
           template: {
-            name: "agendamento", // ✅ CORRIGIDO de acordo com seu print
-            language: { code: "en" }, // ✅ CORRIGIDO de acordo com seu print (English)
+            name: "agendamento", 
+            language: { code: "en" }, 
             components: [
               {
                 type: "body",
