@@ -7,6 +7,7 @@ import crypto from "crypto";
 import session from "express-session"; // Adicionado para suporte a login
 import passport from "passport"; // Adicionado para suporte a login
 import { Strategy as GoogleStrategy } from "passport-google-oauth20"; // Adicionado para suporte a login
+import { google } from "googleapis"; // Adicionado para integração com Agenda
 import "dotenv/config";
 
 const { Pool } = pkg;
@@ -37,6 +38,42 @@ const pool = new Pool({
     ? { rejectUnauthorized: false }
     : false
 });
+
+// =========================
+// 🔥 FUNÇÃO GOOGLE CALENDAR
+// =========================
+
+async function createGoogleCalendarEvent(userToken, appointment) {
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: userToken });
+
+  const calendar = google.calendar({ version: "v3", auth });
+
+  const event = {
+    summary: `Agendamento: ${appointment.nome}`,
+    description: "Agendamento criado via SaaS Agendamento Automático",
+    start: {
+      dateTime: new Date(appointment.data).toISOString(),
+      timeZone: "America/Sao_Paulo",
+    },
+    end: {
+      // Define o fim para 30 minutos após o início
+      dateTime: new Date(new Date(appointment.data).getTime() + 30 * 60000).toISOString(),
+      timeZone: "America/Sao_Paulo",
+    },
+  };
+
+  try {
+    const response = await calendar.events.insert({
+      calendarId: "primary",
+      resource: event,
+    });
+    console.log("✅ Evento criado na Google Agenda:", response.data.htmlLink);
+    return response.data;
+  } catch (error) {
+    console.error("❌ Erro ao criar evento na agenda:", error);
+  }
+}
 
 // =========================
 // 🔥 CONFIGURAÇÃO OAUTH GOOGLE
