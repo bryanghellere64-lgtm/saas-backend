@@ -29,6 +29,37 @@ app.get("/", (req, res) => {
   res.send("SaaS rodando 🚀");
 });
 
+
+// =========================
+// 🔥 WEBHOOK WHATSAPP
+// =========================
+
+// Verificação (Meta chama isso primeiro)
+app.get("/webhook", (req, res) => {
+  const VERIFY_TOKEN = "meu_token_123"; // você define no painel
+
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("✅ Webhook verificado com sucesso!");
+    return res.status(200).send(challenge);
+  } else {
+    console.log("❌ Erro na verificação do webhook");
+    return res.sendStatus(403);
+  }
+});
+
+// Receber mensagens
+app.post("/webhook", (req, res) => {
+  console.log("📩 Mensagem recebida do WhatsApp:");
+  console.log(JSON.stringify(req.body, null, 2));
+
+  res.sendStatus(200);
+});
+
+
 // REGISTER
 app.post("/register", async (req, res) => {
   const { nome, email, senha } = req.body;
@@ -279,7 +310,7 @@ app.get("/stats", authMiddleware, async (req, res) => {
   }
 });
 
-// WHATSAPP (AJUSTADO PARA TEMPLATE)
+// WHATSAPP
 async function sendWhatsApp(telefone, mensagem) {
   try {
     const response = await fetch(
