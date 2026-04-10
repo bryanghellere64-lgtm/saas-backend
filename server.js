@@ -360,8 +360,8 @@ async function sendWhatsApp(telefone, appt) {
           to: telefone,
           type: "template",
           template: {
-            name: "confirmacao_agendamento",
-            language: { code: "pt_BR" },
+            name: "agendamento", // ✅ CORRIGIDO de acordo com seu print
+            language: { code: "en" }, // ✅ CORRIGIDO de acordo com seu print (English)
             components: [
               {
                 type: "body",
@@ -388,7 +388,6 @@ async function sendWhatsApp(telefone, appt) {
 // 🔥 SCHEDULER DE TESTE (ENVIO IMEDIATO)
 async function processAppointments() {
   try {
-    // Busca qualquer agendamento pendente que ainda não foi enviado
     const result = await pool.query(
       "SELECT * FROM appointments WHERE sent=false AND status='pending'"
     );
