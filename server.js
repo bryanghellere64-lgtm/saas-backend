@@ -46,7 +46,7 @@ let lastGoogleAccessToken = "";
 // 🔥 FUNÇÃO GOOGLE CALENDAR
 // =========================
 
-async function createGoogleCalendarEvent(userToken, appointment) {
+async function createGoogleCalendarEvent(userToken, appointment, guestEmail) {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: userToken });
 
@@ -64,12 +64,16 @@ async function createGoogleCalendarEvent(userToken, appointment) {
       dateTime: new Date(new Date(appointment.data).getTime() + 30 * 60000).toISOString(),
       timeZone: "America/Sao_Paulo",
     },
+    // Suporte ao e-mail do convidado
+    attendees: guestEmail ? [{ email: guestEmail }] : [],
   };
 
   try {
     const response = await calendar.events.insert({
       calendarId: "primary",
       resource: event,
+      sendUpdates: "all", // Envia o convite por e-mail para o paciente
+      sendNotifications: true, // ADICIONADO PARA FORÇAR O ENVIO EM APPS DE TESTE
     });
     console.log("✅ Evento criado na Google Agenda:", response.data.htmlLink);
     return response.data;
@@ -282,8 +286,20 @@ function authMiddleware(req, res, next) {
 
 // CRIAR
 app.post("/appointments", authMiddleware, async (req, res) => {
-  const { nome, telefone, data } = req.body;
+  const { nome, telefone, data, email } = req.body;
   const user_id = req.user.id;
+
+  // --- ADICIONE ESTAS LINHAS AQUI (DEBUG) ---
+  console.log("-----------------------------------------");
+  console.log("🔍 DEBUG: Iniciando criação de agendamento");
+  console.log("🔍 DEBUG: Token do Google presente?", !!lastGoogleAccessToken);
+  console.log("🔍 DEBUG: E-mail do paciente:", email);
+  // ------------------------------------------
+
+  // TRAVA DE SEGURANÇA: Evita erro 23502 (Not Null Violation)
+  if (!nome || !telefone || !data) {
+    return res.status(400).json({ error: "Campos obrigatórios faltando: nome, telefone ou data." });
+  }
 
   try {
     const confirm_token = crypto.randomBytes(16).toString("hex");
@@ -298,9 +314,9 @@ app.post("/appointments", authMiddleware, async (req, res) => {
 
     const newAppointment = result.rows[0];
 
-    // SOLUÇÃO: DISPARA A CRIAÇÃO NA GOOGLE AGENDA
+    // DISPARA A CRIAÇÃO NA GOOGLE AGENDA PASSANDO O EMAIL DO CONVIDADO
     if (lastGoogleAccessToken) {
-      await createGoogleCalendarEvent(lastGoogleAccessToken, newAppointment);
+      await createGoogleCalendarEvent(lastGoogleAccessToken, newAppointment, email);
     }
 
     res.json(newAppointment);
