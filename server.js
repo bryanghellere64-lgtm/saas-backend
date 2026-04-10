@@ -53,12 +53,9 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// 🔥 RECEBER E RESPONDER MENSAGEM
+// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BOTÕES)
 app.post("/webhook", async (req, res) => {
   try {
-    console.log("📩 Webhook recebido:");
-    console.log(JSON.stringify(req.body, null, 2));
-
     const entry = req.body.entry?.[0];
     const changes = entry?.changes?.[0];
     const value = changes?.value;
@@ -66,32 +63,27 @@ app.post("/webhook", async (req, res) => {
 
     if (message) {
       const from = message.from;
+      
+      // AJUSTE DE ROBUSTEZ: Captura o texto do botão independente do formato enviado pela Meta
+      const buttonText = message.button?.text || message.interactive?.button_reply?.title;
       const text = message.text?.body;
 
-      console.log("📩 Mensagem:", text);
+      console.log(`📩 Mensagem de ${from}: ${buttonText ? 'BOTÃO: ' + buttonText : 'TEXTO: ' + text}`);
 
-      // 🔥 RESPOSTA AUTOMÁTICA (CORRIGIDA)
-      await fetch(
-        `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: from,
-            type: "template",
-            template: {
-              name: "hello_world",
-              language: {
-                code: "en_US"
-              }
-            }
-          })
-        }
-      );
+      // Lógica de Confirmação Automática via Botão
+      if (buttonText === "Sim, confirmar") {
+          await pool.query(
+              "UPDATE appointments SET status='confirmed' WHERE telefone=$1 AND status='pending'",
+              [from]
+          );
+          console.log(`✅ Agendamento de ${from} confirmado via botão.`);
+      } else if (buttonText === "Não, cancelar") {
+          await pool.query(
+              "UPDATE appointments SET status='cancelled' WHERE telefone=$1 AND status='pending'",
+              [from]
+          );
+          console.log(`❌ Agendamento de ${from} cancelado via botão.`);
+      }
     }
 
     res.sendStatus(200);
@@ -263,7 +255,7 @@ app.delete("/appointments/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// CONFIRMAR
+// CONFIRMAR (Link de fallback)
 app.get("/confirm/:id", async (req, res) => {
   const { id } = req.params;
   const { token } = req.query;
@@ -292,7 +284,7 @@ app.get("/confirm/:id", async (req, res) => {
   }
 });
 
-// CANCELAR
+// CANCELAR (Link de fallback)
 app.get("/cancel/:id", async (req, res) => {
   const { id } = req.params;
   const { token } = req.query;
@@ -352,8 +344,8 @@ app.get("/stats", authMiddleware, async (req, res) => {
   }
 });
 
-// WHATSAPP (scheduler continua igual)
-async function sendWhatsApp(telefone, mensagem) {
+// WHATSAPP
+async function sendWhatsApp(telefone, appt) {
   try {
     const response = await fetch(
       `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
@@ -368,10 +360,18 @@ async function sendWhatsApp(telefone, mensagem) {
           to: telefone,
           type: "template",
           template: {
-            name: "hello_world",
-            language: {
-              code: "en_US"
-            }
+            name: "confirmacao_agendamento",
+            language: { code: "pt_BR" },
+            components: [
+              {
+                type: "body",
+                parameters: [
+                  { type: "text", text: appt.nome }, 
+                  { type: "text", text: "Dentista João" },
+                  { type: "text", text: new Date(appt.data).toLocaleString('pt-BR') }
+                ]
+              }
+            ]
           }
         })
       }
@@ -385,37 +385,22 @@ async function sendWhatsApp(telefone, mensagem) {
   }
 }
 
-// SCHEDULER
+// 🔥 SCHEDULER DE TESTE (ENVIO IMEDIATO)
 async function processAppointments() {
   try {
-    const now = new Date();
-
+    // Busca qualquer agendamento pendente que ainda não foi enviado
     const result = await pool.query(
-      "SELECT * FROM appointments WHERE sent=false"
+      "SELECT * FROM appointments WHERE sent=false AND status='pending'"
     );
 
     for (const appt of result.rows) {
-      const apptDate = new Date(appt.data);
+      console.log(`🚀 GATILHO DE TESTE: Disparando para ${appt.nome}`);
+      await sendWhatsApp(appt.telefone, appt);
 
-      if (apptDate <= now) {
-        await sendWhatsApp(
-          appt.telefone,
-`Olá ${appt.nome} 👋
-
-Você confirma seu agendamento?
-
-✅ Confirmar:
-https://saas-backend-1i9q.onrender.com/confirm/${appt.id}?token=${appt.confirm_token}
-
-❌ Cancelar:
-https://saas-backend-1i9q.onrender.com/cancel/${appt.id}?token=${appt.confirm_token}`
-        );
-
-        await pool.query(
-          "UPDATE appointments SET sent=true WHERE id=$1",
-          [appt.id]
-        );
-      }
+      await pool.query(
+        "UPDATE appointments SET sent=true WHERE id=$1",
+        [appt.id]
+      );
     }
   } catch (err) {
     console.error("Erro no scheduler:", err);
