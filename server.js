@@ -70,7 +70,7 @@ app.post("/webhook", async (req, res) => {
 
       console.log("📩 Mensagem:", text);
 
-      // 🔥 RESPOSTA AUTOMÁTICA
+      // 🔥 RESPOSTA AUTOMÁTICA (CORRIGIDA)
       await fetch(
         `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
         {
@@ -82,9 +82,12 @@ app.post("/webhook", async (req, res) => {
           body: JSON.stringify({
             messaging_product: "whatsapp",
             to: from,
-            type: "text",
-            text: {
-              body: `Olá! Recebi sua mensagem: "${text}"`
+            type: "template",
+            template: {
+              name: "hello_world",
+              language: {
+                code: "en_US"
+              }
             }
           })
         }
