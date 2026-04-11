@@ -186,11 +186,20 @@ app.post("/webhook", async (req, res) => {
 
       // Lógica de Confirmação Automática via Botão
       if (buttonText === "Sim, confirmar") {
-          await pool.query(
-              "UPDATE appointments SET status='confirmed' WHERE telefone=$1 AND status='pending'",
+          // ALTERAÇÃO: Agora busca os dados completos para disparar a agenda pós-confirmação
+          const result = await pool.query(
+              "UPDATE appointments SET status='confirmed' WHERE telefone=$1 AND status='pending' RETURNING *",
               [from]
           );
+          
+          const appt = result.rows[0];
           console.log(`✅ Agendamento de ${from} confirmado via botão.`);
+
+          // DISPARA A AGENDA SOMENTE AGORA
+          if (appt && lastGoogleAccessToken) {
+            await createGoogleCalendarEvent(lastGoogleAccessToken, appt, appt.email);
+          }
+
       } else if (buttonText === "Não, cancelar") {
           await pool.query(
               "UPDATE appointments SET status='cancelled' WHERE telefone=$1 AND status='pending'",
@@ -301,23 +310,26 @@ app.post("/appointments", authMiddleware, async (req, res) => {
     return res.status(400).json({ error: "Campos obrigatórios faltando: nome, telefone ou data." });
   }
 
+  // LÓGICA DE LIMPEZA DE NÚMERO (Essencial para o botão funcionar no seu DDD)
+  let telLimpo = telefone.replace(/\D/g, '');
+  if (telLimpo.length === 13 && telLimpo.startsWith("55")) {
+    telLimpo = telLimpo.slice(0, 4) + telLimpo.slice(5);
+  }
+
   try {
     const confirm_token = crypto.randomBytes(16).toString("hex");
 
     const result = await pool.query(
       `INSERT INTO appointments 
-      (user_id, nome, telefone, data, sent, status, confirm_token) 
-      VALUES ($1,$2,$3,$4,false,'pending',$5) 
+      (user_id, nome, telefone, data, sent, status, confirm_token, email) 
+      VALUES ($1,$2,$3,$4,false,'pending',$5,$6) 
       RETURNING *`,
-      [user_id, nome, telefone, data, confirm_token]
+      [user_id, nome, telLimpo, data, confirm_token, email]
     );
 
     const newAppointment = result.rows[0];
 
-    // DISPARA A CRIAÇÃO NA GOOGLE AGENDA PASSANDO O EMAIL DO CONVIDADO
-    if (lastGoogleAccessToken) {
-      await createGoogleCalendarEvent(lastGoogleAccessToken, newAppointment, email);
-    }
+    // REMOVIDO: A agenda não é mais criada aqui, apenas no Webhook após a confirmação.
 
     res.json(newAppointment);
   } catch (err) {
