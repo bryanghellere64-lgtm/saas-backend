@@ -39,15 +39,12 @@ const pool = new Pool({
     : false
 });
 
-// FUNÇÃO PARA GARANTIR QUE A COLUNA EMAIL EXISTA NO BANCO
+// --- ALTERAÇÃO 1: GARANTIR COLUNA EMAIL ---
 const setupDatabase = async () => {
   try {
-    await pool.query(`
-      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS email VARCHAR(255);
-    `);
-    console.log("✅ Banco de dados verificado (Coluna 'email' OK)");
+    await pool.query(`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS email VARCHAR(255);`);
   } catch (err) {
-    console.error("❌ Erro ao verificar banco de dados:", err);
+    console.error("Erro banco:", err);
   }
 };
 setupDatabase();
@@ -323,11 +320,9 @@ app.post("/appointments", authMiddleware, async (req, res) => {
     return res.status(400).json({ error: "Campos obrigatórios faltando: nome, telefone ou data." });
   }
 
-  // LÓGICA DE LIMPEZA DE NÚMERO (Essencial para o botão funcionar no seu DDD)
+  // --- ALTERAÇÃO 2: MANTER O 9 PARA TESTE ---
   let telLimpo = telefone.replace(/\D/g, '');
-  if (telLimpo.length === 13 && telLimpo.startsWith("55")) {
-    telLimpo = telLimpo.slice(0, 4) + telLimpo.slice(5);
-  }
+  // A lógica de remover o 9 foi removida para casar com sua lista da Meta.
 
   try {
     const confirm_token = crypto.randomBytes(16).toString("hex");
@@ -341,8 +336,6 @@ app.post("/appointments", authMiddleware, async (req, res) => {
     );
 
     const newAppointment = result.rows[0];
-
-    // REMOVIDO: A agenda não é mais criada aqui, apenas no Webhook após a confirmação.
 
     res.json(newAppointment);
   } catch (err) {
