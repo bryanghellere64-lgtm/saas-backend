@@ -177,7 +177,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BOTÕES)
+// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BOTÕES E RESPOSTA DE CONFIRMAÇÃO)
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -188,34 +188,54 @@ app.post("/webhook", async (req, res) => {
     if (message) {
       const from = message.from;
       
-      // AJUSTE DE ROBUSTEZ: Captura o texto do botão independente do formato enviado pela Meta
       const buttonText = message.button?.text || message.interactive?.button_reply?.title;
       const text = message.text?.body;
 
       console.log(`📩 Mensagem de ${from}: ${buttonText ? 'BOTÃO: ' + buttonText : 'TEXTO: ' + text}`);
 
-      // Lógica de Confirmação Automática via Botão
       if (buttonText === "Sim, confirmar") {
-          // ALTERAÇÃO: Agora busca os dados completos para disparar a agenda pós-confirmação
+          // Busca com flexibilidade para o número (com ou sem o prefixo 55)
           const result = await pool.query(
-              "UPDATE appointments SET status='confirmed' WHERE telefone=$1 AND status='pending' RETURNING *",
+              "UPDATE appointments SET status='confirmed' WHERE (telefone=$1 OR telefone=SUBSTRING($1, 3)) AND status='pending' RETURNING *",
               [from]
           );
           
           const appt = result.rows[0];
-          console.log(`✅ Agendamento de ${from} confirmado via botão.`);
 
-          // DISPARA A AGENDA SOMENTE AGORA
-          if (appt && lastGoogleAccessToken) {
-            await createGoogleCalendarEvent(lastGoogleAccessToken, appt, appt.email);
+          if (appt) {
+            console.log(`✅ Agendamento de ${appt.nome} confirmado.`);
+
+            if (lastGoogleAccessToken) {
+              // 1. Cria o evento na agenda
+              await createGoogleCalendarEvent(lastGoogleAccessToken, appt, appt.email);
+
+              // 2. Envia a resposta de confirmação sugerida por você
+              await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  messaging_product: "whatsapp",
+                  to: from,
+                  type: "text",
+                  text: { 
+                    body: "Perfeito! Seu horário está confirmado. Acabei de enviar um convite para o seu e-mail para você salvar no seu calendário! 🗓️✅" 
+                  }
+                })
+              });
+            } else {
+              console.log("❌ Erro: Token do Google ausente.");
+            }
           }
 
       } else if (buttonText === "Não, cancelar") {
           await pool.query(
-              "UPDATE appointments SET status='cancelled' WHERE telefone=$1 AND status='pending'",
+              "UPDATE appointments SET status='cancelled' WHERE (telefone=$1 OR telefone=SUBSTRING($1, 3)) AND status='pending'",
               [from]
           );
-          console.log(`❌ Agendamento de ${from} cancelado via botão.`);
+          console.log(`❌ Agendamento de ${from} cancelado.`);
       }
     }
 
@@ -320,9 +340,8 @@ app.post("/appointments", authMiddleware, async (req, res) => {
     return res.status(400).json({ error: "Campos obrigatórios faltando: nome, telefone ou data." });
   }
 
-  // --- ALTERAÇÃO 2: MANTER O 9 PARA TESTE ---
+  // --- MANTER O 9 PARA TESTE ---
   let telLimpo = telefone.replace(/\D/g, '');
-  // A lógica de remover o 9 foi removida para casar com sua lista da Meta.
 
   try {
     const confirm_token = crypto.randomBytes(16).toString("hex");
