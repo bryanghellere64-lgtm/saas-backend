@@ -39,6 +39,19 @@ const pool = new Pool({
     : false
 });
 
+// FUNÇÃO PARA GARANTIR QUE A COLUNA EMAIL EXISTA NO BANCO
+const setupDatabase = async () => {
+  try {
+    await pool.query(`
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+    `);
+    console.log("✅ Banco de dados verificado (Coluna 'email' OK)");
+  } catch (err) {
+    console.error("❌ Erro ao verificar banco de dados:", err);
+  }
+};
+setupDatabase();
+
 // Variável global simples para armazenar o token (em produção, salve no banco de dados)
 let lastGoogleAccessToken = "";
 
