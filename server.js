@@ -177,7 +177,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BOTÕES E RESPOSTA DE CONFIRMAÇÃO)
+// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BUSCA INTELIGENTE)
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -194,10 +194,12 @@ app.post("/webhook", async (req, res) => {
       console.log(`📩 Mensagem de ${from}: ${buttonText ? 'BOTÃO: ' + buttonText : 'TEXTO: ' + text}`);
 
       if (buttonText === "Sim, confirmar") {
-          // Busca com flexibilidade para o número (com ou sem o prefixo 55)
+          // BUSCA INTELIGENTE: Pega os últimos 8 dígitos para ignorar erro de nono dígito (9)
+          const sufixo = from.slice(-8); 
+
           const result = await pool.query(
-              "UPDATE appointments SET status='confirmed' WHERE (telefone=$1 OR telefone=SUBSTRING($1, 3)) AND status='pending' RETURNING *",
-              [from]
+              "UPDATE appointments SET status='confirmed' WHERE telefone LIKE '%' || $1 AND status='pending' RETURNING *",
+              [sufixo]
           );
           
           const appt = result.rows[0];
@@ -209,7 +211,7 @@ app.post("/webhook", async (req, res) => {
               // 1. Cria o evento na agenda
               await createGoogleCalendarEvent(lastGoogleAccessToken, appt, appt.email);
 
-              // 2. Envia a resposta de confirmação sugerida por você
+              // 2. Envia a resposta de confirmação sugerida
               await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
                 method: "POST",
                 headers: {
@@ -228,12 +230,15 @@ app.post("/webhook", async (req, res) => {
             } else {
               console.log("❌ Erro: Token do Google ausente.");
             }
+          } else {
+            console.log("❓ Agendamento pendente não encontrado para este número.");
           }
 
       } else if (buttonText === "Não, cancelar") {
+          const sufixo = from.slice(-8);
           await pool.query(
-              "UPDATE appointments SET status='cancelled' WHERE (telefone=$1 OR telefone=SUBSTRING($1, 3)) AND status='pending'",
-              [from]
+              "UPDATE appointments SET status='cancelled' WHERE telefone LIKE '%' || $1 AND status='pending'",
+              [sufixo]
           );
           console.log(`❌ Agendamento de ${from} cancelado.`);
       }
