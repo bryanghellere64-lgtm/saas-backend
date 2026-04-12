@@ -207,23 +207,32 @@ app.post("/webhook", async (req, res) => {
           if (appt) {
             console.log(`✅ Agendamento de ${appt.nome} confirmado.`);
 
-            // 1. WhatsApp responde primeiro (Feedback imediato ao usuário)
+            // 1. WhatsApp responde primeiro (USANDO TEMPLATE PARA GARANTIR ENTREGA)
             try {
-              const whatsRes = await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+              await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
                 method: "POST",
                 headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
                   messaging_product: "whatsapp",
                   to: from,
-                  type: "text",
-                  text: { 
-                    body: "Perfeito! Seu horário está confirmado. Acabamos de adicionar o convite na sua agenda e enviamos um backup para o seu e-mail! 🗓️✅" 
+                  type: "template",
+                  template: {
+                    name: "agendamento", 
+                    language: { code: "en" }, 
+                    components: [
+                      {
+                        type: "body",
+                        parameters: [
+                          { type: "text", text: `CONFIRMADO: ${appt.nome}` }, 
+                          { type: "text", text: "Dentista João" },
+                          { type: "text", text: "Horário garantido! Veja seu e-mail." }
+                        ]
+                      }
+                    ]
                   }
                 })
               });
-              const whatsData = await whatsRes.json();
-              console.log("🔎 Log Resposta WhatsApp:", JSON.stringify(whatsData));
-            } catch (e) { console.error("Erro ao enviar mensagem de texto Whats:", e.message); }
+            } catch (e) { console.error("Erro ao enviar confirmação Whats:", e.message); }
 
             // 2. Cria o evento na agenda (Processo em segundo plano)
             if (lastGoogleAccessToken) {
