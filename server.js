@@ -209,7 +209,7 @@ app.post("/webhook", async (req, res) => {
 
             // 1. WhatsApp responde primeiro (Feedback imediato ao usuário)
             try {
-              await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+              const whatsRes = await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
                 method: "POST",
                 headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -221,6 +221,8 @@ app.post("/webhook", async (req, res) => {
                   }
                 })
               });
+              const whatsData = await whatsRes.json();
+              console.log("🔎 Log Resposta WhatsApp:", JSON.stringify(whatsData));
             } catch (e) { console.error("Erro ao enviar mensagem de texto Whats:", e.message); }
 
             // 2. Cria o evento na agenda (Processo em segundo plano)
