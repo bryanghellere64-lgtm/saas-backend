@@ -177,7 +177,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BUSCA INTELIGENTE E RESPOSTA VIA TEMPLATE)
+// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BUSCA INTELIGENTE E RESPOSTA VIA TEXTO PARA EVITAR LOOP)
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -207,7 +207,7 @@ app.post("/webhook", async (req, res) => {
           if (appt) {
             console.log(`✅ Agendamento de ${appt.nome} confirmado.`);
 
-            // 1. WhatsApp responde (USANDO TEMPLATE PARA GARANTIR ENTREGA)
+            // 1. WhatsApp responde com TEXTO PURO (Evita que os botões apareçam de novo e causem loop)
             try {
               const whatsRes = await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
                 method: "POST",
@@ -215,20 +215,9 @@ app.post("/webhook", async (req, res) => {
                 body: JSON.stringify({
                   messaging_product: "whatsapp",
                   to: from,
-                  type: "template",
-                  template: {
-                    name: "agendamento", 
-                    language: { code: "en" }, 
-                    components: [
-                      {
-                        type: "body",
-                        parameters: [
-                          { type: "text", text: `CONFIRMADO: ${appt.nome}` }, 
-                          { type: "text", text: "Dentista João" },
-                          { type: "text", text: "Horário garantido! Veja seu e-mail." }
-                        ]
-                      }
-                    ]
+                  type: "text",
+                  text: { 
+                    body: `Perfeito, ${appt.nome}! Seu horário com o Dentista João está CONFIRMADO. Acabamos de enviar o convite para o seu e-mail! 🗓️✅` 
                   }
                 })
               });
