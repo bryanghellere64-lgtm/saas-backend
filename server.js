@@ -241,7 +241,23 @@ app.post("/webhook", async (req, res) => {
               "UPDATE appointments SET status='cancelled' WHERE telefone LIKE '%' || $1 AND status='pending'",
               [sufixo]
           );
-          console.log(`❌ Agendamento de ${from} cancelado.`);
+          
+          // Resposta de cancelamento com opção de remarcar via WhatsApp da empresa
+          try {
+            await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                to: from,
+                type: "text",
+                text: { 
+                  body: `Seu agendamento foi CANCELADO com sucesso. ❌\n\nDeseja remarcar? Fale conosco agora mesmo para escolher um novo horário clicando no link abaixo:\nhttps://wa.me/5548998606478` 
+                }
+              })
+            });
+            console.log(`❌ Agendamento de ${from} cancelado.`);
+          } catch (e) { console.error("Erro ao enviar mensagem de cancelamento:", e.message); }
       }
     }
 
