@@ -177,7 +177,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BUSCA INTELIGENTE)
+// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BUSCA INTELIGENTE E RESPOSTA RÁPIDA)
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -207,26 +207,23 @@ app.post("/webhook", async (req, res) => {
           if (appt) {
             console.log(`✅ Agendamento de ${appt.nome} confirmado.`);
 
-            if (lastGoogleAccessToken) {
-              // 1. Cria o evento na agenda
-              await createGoogleCalendarEvent(lastGoogleAccessToken, appt, appt.email);
+            // 1. WhatsApp responde primeiro (Feedback imediato ao usuário)
+            await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                to: from,
+                type: "text",
+                text: { 
+                  body: "Perfeito! Seu horário está confirmado. Acabamos de adicionar o convite na sua agenda e enviamos um backup para o seu e-mail! 🗓️✅" 
+                }
+              })
+            });
 
-              // 2. Envia a resposta de confirmação sugerida
-              await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
-                  "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                  messaging_product: "whatsapp",
-                  to: from,
-                  type: "text",
-                  text: { 
-                    body: "Perfeito! Seu horário está confirmado. Acabei de enviar um convite para o seu e-mail para você salvar no seu calendário! 🗓️✅" 
-                  }
-                })
-              });
+            // 2. Cria o evento na agenda (Processo em segundo plano)
+            if (lastGoogleAccessToken) {
+              await createGoogleCalendarEvent(lastGoogleAccessToken, appt, appt.email);
             } else {
               console.log("❌ Erro: Token do Google ausente.");
             }
@@ -568,7 +565,7 @@ async function processAppointments() {
     );
 
     for (const appt of result.rows) {
-      console.log(`🚀 GATILHO DE TESTE: Disparando para ${appt.nome}`);
+      console.log(`🚀 Disparando agendamento para ${appt.nome}`);
       await sendWhatsApp(appt.telefone, appt);
 
       await pool.query(
