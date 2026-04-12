@@ -88,7 +88,7 @@ async function createGoogleCalendarEvent(userToken, appointment, guestEmail) {
     console.log("✅ Evento criado na Google Agenda:", response.data.htmlLink);
     return response.data;
   } catch (error) {
-    console.error("❌ Erro ao criar evento na agenda:", error);
+    console.error("❌ Erro ao criar evento na agenda:", error.message);
   }
 }
 
@@ -177,7 +177,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BUSCA INTELIGENTE E RESPOSTA RÁPIDA)
+// 🔥 RECEBER E RESPONDER MENSAGEM (AJUSTADO PARA BUSCA INTELIGENTE E RESPOSTA VIA TEMPLATE)
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -207,9 +207,9 @@ app.post("/webhook", async (req, res) => {
           if (appt) {
             console.log(`✅ Agendamento de ${appt.nome} confirmado.`);
 
-            // 1. WhatsApp responde primeiro (USANDO TEMPLATE PARA GARANTIR ENTREGA)
+            // 1. WhatsApp responde (USANDO TEMPLATE PARA GARANTIR ENTREGA)
             try {
-              await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+              const whatsRes = await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
                 method: "POST",
                 headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -232,6 +232,8 @@ app.post("/webhook", async (req, res) => {
                   }
                 })
               });
+              const whatsLog = await whatsRes.json();
+              console.log("🚨 LOG WHATSAPP RESPOSTA:", JSON.stringify(whatsLog));
             } catch (e) { console.error("Erro ao enviar confirmação Whats:", e.message); }
 
             // 2. Cria o evento na agenda (Processo em segundo plano)
