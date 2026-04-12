@@ -208,18 +208,20 @@ app.post("/webhook", async (req, res) => {
             console.log(`✅ Agendamento de ${appt.nome} confirmado.`);
 
             // 1. WhatsApp responde primeiro (Feedback imediato ao usuário)
-            await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                messaging_product: "whatsapp",
-                to: from,
-                type: "text",
-                text: { 
-                  body: "Perfeito! Seu horário está confirmado. Acabamos de adicionar o convite na sua agenda e enviamos um backup para o seu e-mail! 🗓️✅" 
-                }
-              })
-            });
+            try {
+              await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  messaging_product: "whatsapp",
+                  to: from,
+                  type: "text",
+                  text: { 
+                    body: "Perfeito! Seu horário está confirmado. Acabamos de adicionar o convite na sua agenda e enviamos um backup para o seu e-mail! 🗓️✅" 
+                  }
+                })
+              });
+            } catch (e) { console.error("Erro ao enviar mensagem de texto Whats:", e.message); }
 
             // 2. Cria o evento na agenda (Processo em segundo plano)
             if (lastGoogleAccessToken) {
